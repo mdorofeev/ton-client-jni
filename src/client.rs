@@ -142,7 +142,7 @@ fn handler_callback(request_id: u32, params_json: String, response_type: u32, fi
     } else if response_type >= ResponseType::AppNotify as u32 {
         handler.on_result(params_json, String::from(""), response_type as i32);
     } else {
-        panic!(format!("Unsupported response type: {}", response_type));
+        println!("Unsupported response type: {}", response_type);
     }
 
     if finished {
