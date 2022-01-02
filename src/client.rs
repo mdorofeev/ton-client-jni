@@ -1,16 +1,16 @@
 extern crate ton_client;
 
-
 extern crate jni;
 extern crate lazy_static;
 
-use jni::{JNIEnv};
-use jni::sys::{jint};
+use self::ton_client::{create_context, destroy_context, request, ContextHandle};
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
-use self::ton_client::{ContextHandle, create_context, destroy_context, request, ResponseType};
+use jni::sys::jint;
+use jni::JNIEnv;
+use num_traits::FromPrimitive;
 use std::collections::HashMap;
-use std::sync::{Mutex};
-
+use std::sync::Mutex;
+use ton_client::ResponseType::*;
 
 struct HandlerRepository {
     pub handlers: HashMap<u32, JniResultHandler>,
@@ -27,7 +27,6 @@ impl HandlerRepository {
 lazy_static::lazy_static! {
     static ref HANDLERS: Mutex<HandlerRepository> = Mutex::new(HandlerRepository::new());
 }
-
 
 struct JniResultHandler {
     jvm: jni::JavaVM,
@@ -64,18 +63,18 @@ impl JniResultHandler {
             "invoke",
             "(Ljava/lang/String;Ljava/lang/String;I)V",
             &[java_result_json, java_error_json, java_response_type],
-        ).unwrap();
+        )
+        .unwrap();
     }
 }
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub unsafe extern fn Java_ton_sdk_TONSDKJsonApi_createContext<'a>(
+pub unsafe extern "C" fn Java_ton_sdk_TONSDKJsonApi_createContext<'a>(
     _env: JNIEnv<'a>,
     _class: JClass,
-    config: JString
+    config: JString,
 ) -> JString<'a> {
-
     let response = create_context(rust_string(&_env, config));
 
     _env.new_string(response).unwrap()
@@ -83,7 +82,7 @@ pub unsafe extern fn Java_ton_sdk_TONSDKJsonApi_createContext<'a>(
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub unsafe extern fn Java_ton_sdk_TONSDKJsonApi_destroyContext(
+pub unsafe extern "C" fn Java_ton_sdk_TONSDKJsonApi_destroyContext(
     _env: JNIEnv,
     _class: JClass,
     context: jint,
@@ -93,7 +92,7 @@ pub unsafe extern fn Java_ton_sdk_TONSDKJsonApi_destroyContext(
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub unsafe extern fn Java_ton_sdk_TONSDKJsonApi_jsonRequestAsync(
+pub unsafe extern "C" fn Java_ton_sdk_TONSDKJsonApi_jsonRequestAsync(
     env: JNIEnv,
     _class: JClass,
     context: jint,
@@ -108,15 +107,17 @@ pub unsafe extern fn Java_ton_sdk_TONSDKJsonApi_jsonRequestAsync(
 
     let id = _request_id as u32;
 
-    handlers.handlers.insert(
-        id,
-        handler
-    );
+    handlers.handlers.insert(id, handler);
 
     drop(handlers);
 
-    request(context as ContextHandle,rust_string(&env, method),
-            rust_string(&env, params_json), id, handler_callback);
+    request(
+        context as ContextHandle,
+        rust_string(&env, method),
+        rust_string(&env, params_json),
+        id,
+        handler_callback,
+    );
 }
 
 fn handler_callback(request_id: u32, params_json: String, response_type: u32, finished: bool) {
@@ -130,19 +131,16 @@ fn handler_callback(request_id: u32, params_json: String, response_type: u32, fi
         }
     };
 
-    if response_type == ResponseType::Success as u32 {
-        handler.on_result(params_json, String::from(""), response_type as i32);
-    } else if response_type == ResponseType::Error as u32 {
-        handler.on_result(String::from(""), params_json, response_type as i32);
-    } else if response_type == ResponseType::Nop as u32 {
-    } else if response_type >= ResponseType::Custom as u32 {
-        handler.on_result(params_json, String::from(""), response_type as i32);
-    } else if response_type >= ResponseType::AppRequest as u32 {
-        handler.on_result(params_json, String::from(""), response_type as i32);
-    } else if response_type >= ResponseType::AppNotify as u32 {
-        handler.on_result(params_json, String::from(""), response_type as i32);
-    } else {
-        println!("Unsupported response type: {}", response_type);
+    match FromPrimitive::from_u32(response_type).unwrap() {
+        Success | Custom | AppRequest | AppNotify => {
+            handler.on_result(params_json, "".to_string(), response_type as i32);
+        }
+        Error => {
+            handler.on_result("".to_string(), params_json, response_type as i32);
+        }
+        _ => {
+            println!("Unsupported response type: {}", response_type);
+        }
     }
 
     if finished {
@@ -151,4 +149,3 @@ fn handler_callback(request_id: u32, params_json: String, response_type: u32, fi
 
     drop(handlers_repository);
 }
-

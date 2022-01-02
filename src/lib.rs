@@ -12,6 +12,8 @@
 */
 
 extern crate jni;
+extern crate num_traits;
+extern crate ton_client;
 
 mod client;
 
