@@ -18,5 +18,3 @@ extern crate ton_client;
 mod client;
 
 pub use self::client::*;
-
-

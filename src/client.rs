@@ -101,11 +101,17 @@ pub unsafe extern "C" fn Java_ton_sdk_TONSDKJsonApi_jsonRequestAsync(
     params_json: JString,
     on_result: JObject,
 ) {
-    let mut handlers = HANDLERS.lock().unwrap();
+    let id = _request_id as u32;
+
+    let mut handlers = match HANDLERS.lock() {
+        Ok(r) => r,
+        Err(_) => {
+            println!("Can't get handler repository: {}", id);
+            return;
+        }
+    };
 
     let handler = JniResultHandler::new(&env, on_result);
-
-    let id = _request_id as u32;
 
     handlers.handlers.insert(id, handler);
 
@@ -121,7 +127,13 @@ pub unsafe extern "C" fn Java_ton_sdk_TONSDKJsonApi_jsonRequestAsync(
 }
 
 fn handler_callback(request_id: u32, params_json: String, response_type: u32, finished: bool) {
-    let mut handlers_repository = HANDLERS.lock().unwrap();
+    let mut handlers_repository = match HANDLERS.lock() {
+        Ok(r) => r,
+        Err(_) => {
+            println!("Can't get handler repository: {}", request_id);
+            return;
+        }
+    };
 
     let handler = match handlers_repository.handlers.get_mut(&request_id) {
         Some(handler) => handler,
@@ -131,15 +143,12 @@ fn handler_callback(request_id: u32, params_json: String, response_type: u32, fi
         }
     };
 
-    match FromPrimitive::from_u32(response_type).unwrap() {
-        Success | Custom | AppRequest | AppNotify => {
+    match FromPrimitive::from_u32(response_type).unwrap_or(Error) {
+        Success | Custom | AppRequest | AppNotify | Nop => {
             handler.on_result(params_json, "".to_string(), response_type as i32);
         }
         Error => {
             handler.on_result("".to_string(), params_json, response_type as i32);
-        }
-        _ => {
-            println!("Unsupported response type: {}", response_type);
         }
     }
 
